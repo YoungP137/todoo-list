@@ -1,0 +1,3 @@
+def get_new_items():
+    ...
+    return "new item: "
