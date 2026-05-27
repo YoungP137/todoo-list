@@ -1,0 +1,39 @@
+version: '3.8'
+services:
+  api:
+    build: .
+    container_name: todoolist
+    command: uvicorn sss:priloj --reload --host 0.0.0.0 --port 8080
+    volumes:
+      - .:/app
+    ports:
+      - "8080:8080" #порт должен быть, тот на который стучиться фронтенд часть, левый порт(порт моего хоста, компьютера) и правый порт(порт контейнера(Docker))
+    environment:
+      - DEBUG=true
+      - DATABASE_URL=postgresql+psycopg2://postgres:admin@pgdb:5432/postgres
+    depends_on:
+      pgdb:
+        condition: service_healthy
+    restart: on-failure
+
+
+  pgdb:
+    image: postgres:13
+    environment: 
+      - POSTGRES_DB=postgres
+      - POSTGRES_USER=postgres 
+      - POSTGRES_PASSWORD=admin
+    container_name: pgdbtodoo
+    ports:
+      - "15432:5432"
+    volumes:
+      - pgdb_data:/var/lib/postgresql/data 
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+volumes:
+  pgdb_data:

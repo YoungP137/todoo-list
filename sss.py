@@ -3,10 +3,10 @@ from uuid import uuid4
 from fastapi import FastAPI, status, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from sqlalchemy import create_engine
-from sqlalchemy.orm import select, DeclarativeBase, Mapped, Session, mapped_column, sessionmaker
+from sqlalchemy import create_engine, select
+from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, sessionmaker
 
-DATABASE_URL = 'postgresql+psycopg://postgres:admin@127.0.0.1:15432/postgres'
+DATABASE_URL = 'postgresql+psycopg2://postgres:admin@pgdb:5432/postgres'
 engine = create_engine(DATABASE_URL)
 Sessionlocal = sessionmaker (bind = engine)
 
@@ -18,11 +18,17 @@ class TaskORM(Base):
     title: Mapped[str]
     completed: Mapped[bool] = mapped_column (default= False)
 
+class CategoriesORM(Base):
+    __tablename__ = "categories"
+    name: Mapped [str]
+    
+
+       
+    
 @asynccontextmanager
-async def lifespan(_: FastAPI):
+async def lifespan (_: FastAPI):
     Base.metadata.create_all (bind=engine)
     yield
-    
 
 priloj = FastAPI(lifespan=lifespan)
 
@@ -52,8 +58,6 @@ class TaskUpdateSchema(BaseModel):
     completed: bool | None = None
     
 
-categories: list[CategoriesSchema] = []
-
 class CategoriesSchema(BaseModel):
     id: str
     name: str
@@ -63,24 +67,24 @@ class  CategoriesCreateSchema(BaseModel):
     
 class CategoriesUpdateSchema (BaseModel):
     name: str
+  
     
-
-tasks: list[TaskSchema] = []
 book: list[BookCreate]= []
 
 
 def get_db ():
     db = Sessionlocal()
+    
     try:
         yield db
     finally:
         db.close()
 
-
 def task_orm_to_module (task_orm: TaskORM) -> TaskSchema:
     return TaskSchema(id = task_orm.id, title = task_orm.title, completed = task_orm.completed)
 
-
+def categories_orm_to_module (categories_orm: CategoriesORM) -> CategoriesSchema:
+    return CategoriesSchema (id = categories_orm.id, name = categories_orm.name)
 
 @priloj.get ("/tasks", response_model= list [TaskSchema])
 def read_tasks(db: Session = Depends(get_db)) -> list[TaskSchema]:
@@ -123,27 +127,31 @@ def delete_task(task_id, db: Session = Depends(get_db)) -> None:
     db.commit()
         
 @priloj.get('/categories', response_model = list [CategoriesSchema])
-def read_categories () -> list[CategoriesSchema]:
-    return categories
+def read_categories (db: Session = Depends(get_db)) -> list[CategoriesSchema]:
+    categories_from_db = db.scalars(select(CategoriesORM)).all()
+    return [categories_orm_to_module(category) for category in categories_from_db]
 
 @priloj.post('/categories', response_model = CategoriesSchema, status_code= status.HTTP_201_CREATED)
-def create_categories (payload: CategoriesCreateSchema):
-    new_categories = CategoriesSchema (id= str(uuid4()), name = payload.name )
-    categories.append(new_categories)
-    return new_categories
+def create_categories (payload: CategoriesCreateSchema, db: Session = Depends(get_db)):
+    new_categories = CategoriesORM (name = payload.name )
+    db.add (new_categories)
+    db.commit()
+    return categories_orm_to_module(new_categories)
 
 @priloj.patch('/categories/{categoriya_id}', response_model = CategoriesSchema)
-def update_categories(categoriya_id: str, payload: CategoriesUpdateSchema):
-    for categoriya in categories:
-        if categoriya.id == categoriya_id:
-            categoriya.name = payload.name if payload.name else categoriya.name
-        return categoriya
-    raise HTTPException (status_code= status.HTTP_404_NOT_FOUND, detail= "Category not found")
+def update_categories(categoriya_id: str, payload: CategoriesUpdateSchema, db: Session = Depends(get_db)) -> CategoriesSchema:
+    categories_for_update = db.get(CategoriesORM, categoriya_id)
+    if payload.name:
+        categories_for_update.name = payload.name
+    
+    db.commit()
+    return categories_for_update
+    
 
+    
 @priloj.delete ('/categories/{categoriya_id}', status_code = status.HTTP_204_NO_CONTENT)
-def delete_categories (categoriya_id):
-    for categoriya in categories:
-        if categoriya.id == categoriya_id:
-            categories.remove(categoriya)
-            return
-    raise HTTPException (status_code= status. HTTP_404_NOT_FOUND, detail= "Category not found")    
+def delete_categories (categoriya_id, db: Session = Depends(get_db)) -> None:
+    categories_for_delete = db.get(CategoriesORM, categoriya_id)
+    db.delete(categories_for_delete)
+    db.commit()
+        
